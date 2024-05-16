@@ -15,10 +15,12 @@ BASE_URL = "https://www.wildberries.ru"
 URL = "https://search.wb.ru/exactmatch/ru/common/v4/search"
 PAGE_LIMIT = 100
 PAGE_START = 1
-DELAY = 2
+DELAY = 1
 
 
 async def get_response(data: dict):
+    print(data)
+    dest = data['geo_position']
     search_query = data['search_query']
     vendor_code = data['vendor_code']
     
@@ -44,7 +46,7 @@ async def get_response(data: dict):
         "ab_testing": "false",
         "appType": 1,
         "curr": "rub",
-        "dest": -1257786,
+        "dest": dest,
         "page": PAGE_START,
         "query": search_query,
         "resultset": "catalog",
@@ -59,7 +61,7 @@ async def get_response(data: dict):
     for i in range(PAGE_START, PAGE_LIMIT):
         current_page = params.get("page", None)
         sleep(DELAY)
-        response = work.get(URL, headers=headers, params=params)
+        response = work.get(URL, headers=headers, params=params, timeout=1)
         place = find_place(response.json(), vendor_code)
         if place is not None:
             result["page"] = current_page

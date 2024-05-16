@@ -5,6 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from kbds.reply import get_keyboard
 from parser.pars_wb import PAGE_LIMIT, get_response
+from parser.pars_geo import get_osm, get_xinfo
 
 user_private_router = Router()
 
@@ -15,34 +16,44 @@ start_kbd = get_keyboard(
 )
 
 position_kbd = get_keyboard(
-    'Местоположение',
+    'По умолчанию🌇',
+    'Передать🗺️',
+    'Ввести самостоятельно✏️',
     placeholder='передайте координаты',
-    request_location=0,
-    sizes=(1,),
+    request_location=1,
+    sizes=(2, 1,),
 )
 
 @user_private_router.message(or_f(CommandStart(), F.text.lower() == 'start'))
 async def start_cmd(message: types.Message):
-    await message.answer('Привет, я помогу найти позицию товоего товара в выдаче ВБ по поисковому запросу', reply_markup=start_kbd)
-    
+    await message.answer(
+        f'Привет😺😽😺\nя помогу найти позицию товоего товара в выдаче ВБ по поисковому запросу\n ', 
+        reply_markup=start_kbd,
+    )    
 
 #################FSM####################
     
 class AddSearchQuery(StatesGroup):
+    geo_position = State()
     vendor_code = State()
     search_query = State()
 
     texts = {
+        'AddSearchQuery:geo_position': 'Отправьте Вашу локацию заново',
         'AddSearchQuery:vendor_code': 'Введите артикул заново',
         'AddSearchQuery:search_query': 'Введите поисковый запрос заново',
     }
 
 
-#Встаем в состояние ожидания ввода артикула    
+#Опрашиваем пользователя о необходимости использовать его геолокацию при дальнейшим парсинге, встаем в состояние ожидания ввода геоданных
 @user_private_router.message(StateFilter(None), F.text.lower() == 'поиск')
 async def start_quiz(message: types.Message, state: FSMContext):
-    await message.answer('Отправь мне артикул искомого товара', reply_markup=types.ReplyKeyboardRemove())
-    await state.set_state(AddSearchQuery.vendor_code)
+    await message.answer(
+        f'Использовать геолокацию по умолчанию (Москва)🌇\n или использовать Вашу?🗺️\nЛибо Вы можете указать любой интересующий Вас адрес✏️', 
+        reply_markup=position_kbd,
+    )
+    await state.set_state(AddSearchQuery.geo_position)
+
 
 #хэндлер отмены и сброса состояния
 @user_private_router.message(StateFilter('*'), Command('отмена'))
@@ -62,7 +73,7 @@ async def cancel_handler(message: types.Message, state: FSMContext):
 async def back_step_handler(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
 
-    if current_state == AddSearchQuery.vendor_code:
+    if current_state == AddSearchQuery.geo_position:
         await message.answer('Предыдущего шага нет, введите артикул или отмена')
         return
     
@@ -73,6 +84,57 @@ async def back_step_handler(message: types.Message, state: FSMContext):
             await message.answer(f'Ок вы вернулись к предыдущему шагу \n {AddSearchQuery.texts[previous.state]}')
             return
         previous = step
+
+
+#Встаем в состояние ожидания ввода артикула, делаем запрос по геопозиции по умолчанию  
+@user_private_router.message(StateFilter(AddSearchQuery.geo_position), F.text == 'По умолчанию🌇')
+async def get_geo_position_default(message: types.Message, state: FSMContext):
+    dest = await get_xinfo()
+    await state.update_data(geo_position=dest)
+    await message.answer('Отправь мне артикул искомого товара', reply_markup=types.ReplyKeyboardRemove())
+    await state.set_state(AddSearchQuery.vendor_code)
+
+#Встаем в состояние ожидания ввода артикула, делаем запрос по геопозиции юзера    
+@user_private_router.message(StateFilter(AddSearchQuery.geo_position), F.location)
+async def get_geo_position_user(message: types.Message, state: FSMContext):
+    
+    geo_data = {
+        'longitude': message.location.longitude,
+        'latitude': message.location.latitude,
+    }
+    
+    dest = await get_xinfo(geo_data)
+
+    await state.update_data(geo_position=dest)
+    await message.answer('Отправь мне артикул искомого товара', reply_markup=types.ReplyKeyboardRemove())
+    await state.set_state(AddSearchQuery.vendor_code)
+
+
+#предлагаем ввести адресс
+@user_private_router.message(StateFilter(AddSearchQuery.geo_position), F.text == 'Ввести самостоятельно✏️')
+async def get_address(message: types.Message):
+    await message.answer('Отправь мне название города или более точный адрес', reply_markup=types.ReplyKeyboardRemove())
+    
+
+#по адресу получаем координаты и получаем значение dest для запроса на вб
+@user_private_router.message(StateFilter(AddSearchQuery.geo_position), F.text)
+async def get_geo_position_manually(message: types.Message, state: FSMContext):
+    address = message.text
+    coords = await get_osm(address)
+    if coords['status']:
+        dest = await get_xinfo(coords)
+        await state.update_data(geo_position=dest)
+        await message.answer('Отправь мне артикул искомого товара', reply_markup=types.ReplyKeyboardRemove())
+        await state.set_state(AddSearchQuery.vendor_code)
+    else:
+        await message.answer('Вы ввели недопустимые данные')
+
+
+#хэндлер для отлова некоректных данных для геопозиции
+@user_private_router.message(StateFilter(AddSearchQuery.geo_position))
+async def get_geo_position_error(message: types.Message, state: FSMContext):
+    await message.answer('Вы ввели недопустимые данные')
+
 
 #ловим артикул и встаем в состояние ввода поискового запроса
 @user_private_router.message(StateFilter(AddSearchQuery.vendor_code), F.text)
@@ -97,7 +159,7 @@ async def add_vendor_code2(message: types.Message, state: FSMContext):
 @user_private_router.message(StateFilter(AddSearchQuery.search_query), F.text)
 async def add_search_query(message: types.Message, state: FSMContext):
     await state.update_data(search_query=message.text)
-    await message.answer('Запрос получен, ожидайте...', reply_markup=start_kbd)
+    await message.answer('Запрос получен, ожидайте...', reply_markup=types.ReplyKeyboardRemove())
     data = await state.get_data()
     response = await get_response(data)
 
@@ -124,25 +186,25 @@ async def add_search_query2(message: types.Message, state: FSMContext):
 
 
 
-@user_private_router.message(Command('position'))
-async def position_cmd(message: types.Message):
-    await message.answer('Отправить локацию 🗺️?', reply_markup=types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text='send location', request_location=True)]
-        ],
-        resize_keyboard=True,
-        )
-        )
+# @user_private_router.message(Command('position'))
+# async def position_cmd(message: types.Message):
+#     await message.answer('Отправить локацию 🗺️?', reply_markup=types.ReplyKeyboardMarkup(
+#         keyboard=[
+#             [types.KeyboardButton(text='send location', request_location=True)]
+#         ],
+#         resize_keyboard=True,
+#         )
+#         )
 
-@user_private_router.message(F.location)
-async def get_location(message: types.Message):
-    geo_data = {
-        'longitude': None,
-        'latitude': None,
-    }
-    await message.answer('Местоположение получено', reply_markup=types.ReplyKeyboardRemove())
-    response = str(message.location)
-    print(response)
+# @user_private_router.message(F.location)
+# async def get_location(message: types.Message):
+#     geo_data = {
+#         'longitude': None,
+#         'latitude': None,
+#     }
+#     await message.answer('Местоположение получено', reply_markup=types.ReplyKeyboardRemove())
+#     response = str(message.location)
+#     print(response)
 
 
 @user_private_router.message(Command('about'))
