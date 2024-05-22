@@ -1,3 +1,4 @@
+import logging
 from requests import Session
 from time import sleep
 from urllib.parse import quote
@@ -19,7 +20,7 @@ DELAY = 1
 
 
 async def get_response(data: dict):
-    print(data)
+    
     dest = data['geo_position']
     search_query = data['search_query']
     vendor_code = data['vendor_code']
@@ -62,27 +63,30 @@ async def get_response(data: dict):
         current_page = params.get("page", None)
         sleep(DELAY)
         response = work.get(URL, headers=headers, params=params, timeout=1)
-        place = find_place(response.json(), vendor_code)
-        if place is not None:
-            result["page"] = current_page
-            result["place"] = place
-            result["status"] = True
-            work.close()
+        products = response.json().get("data", {}).get("products", None)
+        
+        if products is not None and len(products) > 0:
+            place = find_place(products, vendor_code)
+            if place is not None:
+                result["page"] = current_page
+                result["place"] = place
+                result["status"] = True
+                work.close()
+                return result
+            if current_page is not None:
+                params["page"] = i + 1
+        else:
+            result["status"] = False
             return result
-        if current_page is not None:
-            params["page"] = i + 1
-    result["status"] = False
     work.close()
-    return result
 
 
-def find_place(response, vendor_code):
+def find_place(products, vendor_code):
 
     list_id = []
-    products_raw = response.get("data", {}).get("products", None)
     
-    if products_raw is not None and len(products_raw) > 0:
-        for product in products_raw:
+    if products is not None and len(products) > 0:
+        for product in products:
             list_id.append(product.get("id", None))
         if int(vendor_code) in list_id:
             place = list_id.index(int(vendor_code)) + 1

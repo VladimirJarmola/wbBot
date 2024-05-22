@@ -1,3 +1,4 @@
+import logging
 from aiogram import F, Router, types
 from aiogram.filters import CommandStart, Command, StateFilter, or_f
 from aiogram.fsm.context import FSMContext
@@ -145,6 +146,8 @@ async def add_vendor_code(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("Введите артикул корректно")
         return
+    try:
+        len(message.text) // 7 
     
     await state.update_data(vendor_code=message.text)
     await message.answer('Отправь поисковый запрос')
@@ -161,6 +164,7 @@ async def add_search_query(message: types.Message, state: FSMContext):
     await state.update_data(search_query=message.text)
     await message.answer('Запрос получен, ожидайте...', reply_markup=types.ReplyKeyboardRemove())
     data = await state.get_data()
+    # try:
     response = await get_response(data)
 
     if response['status']:   
@@ -176,6 +180,14 @@ async def add_search_query(message: types.Message, state: FSMContext):
         
     await state.clear()
 
+    # except Exception as e:
+    #     logging.exception(e)
+    #     await message.answer(
+    #             f"Товар арт.{data['vendor_code']} по запросу '{data['search_query']}' не найден. Проверьте, может быть вы ввели что-то не так?", 
+    #             reply_markup=start_kbd
+    #         )
+    #     await state.clear()
+
 #хэндлер для отлова некорректных данных для поискового запроса
 @user_private_router.message(StateFilter(AddSearchQuery.search_query), F.text)
 async def add_search_query2(message: types.Message, state: FSMContext):
@@ -186,25 +198,6 @@ async def add_search_query2(message: types.Message, state: FSMContext):
 
 
 
-# @user_private_router.message(Command('position'))
-# async def position_cmd(message: types.Message):
-#     await message.answer('Отправить локацию 🗺️?', reply_markup=types.ReplyKeyboardMarkup(
-#         keyboard=[
-#             [types.KeyboardButton(text='send location', request_location=True)]
-#         ],
-#         resize_keyboard=True,
-#         )
-#         )
-
-# @user_private_router.message(F.location)
-# async def get_location(message: types.Message):
-#     geo_data = {
-#         'longitude': None,
-#         'latitude': None,
-#     }
-#     await message.answer('Местоположение получено', reply_markup=types.ReplyKeyboardRemove())
-#     response = str(message.location)
-#     print(response)
 
 
 @user_private_router.message(Command('about'))

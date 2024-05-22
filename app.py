@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import sys
 import os
 
 from aiogram import Bot, Dispatcher
@@ -28,4 +30,5 @@ async def main():
     await bot.set_my_commands(commands=private, scope=BotCommandScopeAllPrivateChats())
     await dp.start_polling(bot, allowed_updates=ALLOWED_UPDATES)
 
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 asyncio.run(main())
